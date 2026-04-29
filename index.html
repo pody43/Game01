@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>小學堂物語 3D - 豪華加強版</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0f172a; font-family: system-ui, -apple-system, sans-serif; user-select: none; }
+        canvas { display: block; }
+        
+        #ui-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
+        .pointer-auto { pointer-events: auto; }
+
+        .full-screen-overlay { 
+            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.9); 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            z-index: 100; color: white; text-align: center; padding: 20px;
+        }
+
+        .bar-container { width: 180px; height: 14px; background: #334155; border: 2px solid #fff; border-radius: 7px; overflow: hidden; }
+        .bar-fill { height: 100%; transition: width 0.3s ease; }
+
+        .game-modal {
+            background: rgba(15, 23, 42, 0.95); border: 3px solid #fbbf24; border-radius: 1rem;
+            padding: 2rem; color: white; max-width: 500px; width: 90%;
+            box-shadow: 0 0 40px rgba(0,0,0,0.5); pointer-events: auto;
+        }
+
+        #joystick-base { position: absolute; bottom: 40px; left: 40px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; display: none; }
+        #joystick-knob { position: absolute; top: 25px; left: 25px; width: 50px; height: 50px; background: white; border-radius: 50%; opacity: 0.8; }
+        
+        .char-input { width: 45px; height: 55px; background: #1e293b; border: 2px solid #475569; border-radius: 8px; text-align: center; font-size: 1.5rem; font-weight: bold; margin: 0 4px; outline: none; text-transform: uppercase; color: #fbbf24; }
+        .char-input:focus { border-color: #fbbf24; background: #334155; box-shadow: 0 0 10px rgba(251, 191, 36, 0.5); }
+        .char-input:disabled { color: #22c55e; border-color: #22c55e; background: #064e3b; }
+
+        .loader { border: 3px solid #334155; border-top: 3px solid #fbbf24; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #fireworks-container { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
+
+        rt { font-size: 0.6em; color: #94a3b8; }
+
+        .letter-option {
+            background: #1e293b; border: 2px solid #3b82f6; border-radius: 0.75rem;
+            padding: 1rem; font-size: 2rem; font-weight: 900; color: white;
+            transition: all 0.2s; cursor: pointer; text-align: center;
+        }
+        .letter-option:hover { background: #3b82f6; transform: translateY(-3px); }
+        .letter-option.correct { background: #22c55e; border-color: #4ade80; }
+        .letter-option.wrong { background: #ef4444; border-color: #f87171; }
+    </style>
+</head>
+<body>
+
+    <div id="start-screen" class="full-screen-overlay">
+        <h1 class="text-5xl font-black text-yellow-400 mb-2">小學堂物語 3D</h1>
+        <p class="text-xl text-blue-300 mb-8">School Story Adventure Plus</p>
+        <div class="flex gap-4">
+            <button onclick="startGame(false)" class="bg-blue-600 hover:bg-blue-500 px-10 py-4 rounded-full font-bold text-xl shadow-lg transform transition hover:scale-105">電腦版啟動</button>
+            <button onclick="startGame(true)" class="bg-green-600 hover:bg-green-500 px-10 py-4 rounded-full font-bold text-xl shadow-lg transform transition hover:scale-105">手機版啟動</button>
+        </div>
+    </div>
+
+    <div id="ui-container">
+        <div class="absolute top-6 left-6 space-y-3">
+            <div>
+                <span class="text-xs font-bold text-white uppercase tracking-wider">生命值 HP</span>
+                <div class="bar-container"><div id="hp-bar" class="bar-fill bg-red-500" style="width: 100%;"></div></div>
+            </div>
+            <div class="flex gap-4 mt-2">
+                <div class="bg-black/40 px-3 py-1 rounded-full border border-white/20 text-cyan-300 font-bold">💎 水晶: <span id="crystal-count">0</span></div>
+                <div class="bg-black/40 px-3 py-1 rounded-full border border-white/20 text-yellow-400 font-bold">⚔️ 戰力: <span id="power-val">10</span></div>
+            </div>
+        </div>
+
+        <div id="interaction-btn-container" class="absolute bottom-32 left-1/2 -translate-x-1/2 hidden flex flex-col items-center">
+            <button id="main-action-btn" class="pointer-auto bg-yellow-400 hover:bg-yellow-300 text-black px-8 py-3 rounded-full font-black text-xl shadow-[0_0_20px_rgba(251,191,36,0.6)] animate-pulse">
+                進入建築物
+            </button>
+            <p class="text-white text-xs mt-2 font-bold drop-shadow-md">點擊或按 [空格鍵]</p>
+        </div>
+
+        <div id="joystick-base" class="pointer-auto"><div id="joystick-knob"></div></div>
+        <button id="mobile-attack" class="absolute bottom-10 right-10 w-20 h-20 bg-red-600/80 border-4 border-white rounded-full text-white font-bold text-lg pointer-auto hidden">攻擊</button>
+
+        <div id="modal-overlay" class="fixed inset-0 bg-black/80 flex items-center justify-center hidden z-50">
+            <div id="modal-content" class="game-modal"></div>
+        </div>
+
+        <div id="toast" class="fixed top-10 left-1/2 -translate-x-1/2 bg-yellow-400 text-black px-6 py-2 rounded-lg font-bold opacity-0 transition-opacity duration-300"></div>
+    </div>
+
+    <div id="fireworks-container"></div>
+
+    <div id="end-screen" class="full-screen-overlay hidden">
+        <h2 id="end-title" class="text-6xl font-black mb-4">遊戲結束</h2>
+        <p id="end-msg" class="text-xl mb-8"></p>
+        <button onclick="location.reload()" class="bg-white text-black px-10 py-4 rounded-full font-bold text-xl">重新開始</button>
+    </div>
+
+    <script>
+        const apiKey = "";
+        let scene, camera, renderer, clock = new THREE.Clock();
+        let player, playerModel, playerVelocity = new THREE.Vector3();
+        let leftLeg, rightLeg, leftArm, rightArm;
+        let isMobile = false, gameState = 'start';
+        let world = { monsters: [], crystals: [], buildings: [], npcs: [], arrows: [] };
+        let stats = { hp: 100, stamina: 100, crystals: 0, power: 10, hasBow: false, lastAttack: 0, combo: 0 };
+        let inputs = { w: false, s: false, a: false, d: false, space: false };
+        let activeBuilding = null;
+
+        async function callGemini(prompt, isJson = false) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+            if (isJson) {
+                payload.generationConfig = {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            word: { type: "STRING" },
+                            hint: { type: "STRING" },
+                            bopomofo: { type: "STRING" },
+                            category: { type: "STRING" },
+                            missing: { type: "ARRAY", items: { type: "INTEGER" } }
+                        }
+                    }
+                };
+            }
+
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    const data = await res.json();
+                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    return isJson ? JSON.parse(text) : text;
+                } catch (e) { 
+                    await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000)); 
+                }
+            }
+            return null;
+        }
+
+        function startGame(mobile) {
+            isMobile = mobile;
+            document.getElementById('start-screen').classList.add('hidden');
+            initThree();
+            createWorld();
+            spawnEntities();
+            if (isMobile) {
+                document.getElementById('joystick-base').style.display = 'block';
+                document.getElementById('mobile-attack').style.display = 'block';
+                setupMobileControls();
+            }
+            document.getElementById('main-action-btn').onclick = () => {
+                if (activeBuilding) triggerInteraction(activeBuilding);
+            };
+            gameState = 'playing';
+            animate();
+        }
+
+        function initThree() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+            scene.fog = new THREE.FogExp2(0x87ceeb, 0.015);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambient);
+            const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+            sun.position.set(50, 100, 50);
+            sun.castShadow = true;
+            scene.add(sun);
+
+            const keyMap = { KeyW: 'w', KeyS: 's', KeyA: 'a', KeyD: 'd', Space: 'space', ArrowUp: 'w', ArrowDown: 's', ArrowLeft: 'a', ArrowRight: 'd' };
+            window.addEventListener('keydown', e => { if (e.code in keyMap) inputs[keyMap[e.code]] = true; });
+            window.addEventListener('keyup', e => { if (e.code in keyMap) inputs[keyMap[e.code]] = false; });
+            window.addEventListener('mousedown', () => { if(gameState === 'playing') attack(); });
+            window.addEventListener('resize', () => {
+                if(camera && renderer) {
+                    camera.aspect = window.innerWidth / window.innerHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(window.innerWidth, window.innerHeight);
+                }
+            });
+        }
+
+        function createWorld() {
+            const ground = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshPhongMaterial({ color: 0x4ade80 }));
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            createBuilding(-15, -20, 0xfbbf24, '學習小屋', 'study');
+            createBuilding(15, -20, 0x92400e, '農夫家', 'farmer');
+            createBuilding(0, -35, 0x3b82f6, '字母小屋', 'letters');
+
+            player = new THREE.Group();
+            playerModel = new THREE.Group();
+            const skinMat = new THREE.MeshPhongMaterial({ color: 0xffdbac });
+            const shirtMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6 });
+            const pantMat = new THREE.MeshPhongMaterial({ color: 0x1e293b });
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1, 0.4), shirtMat);
+            body.position.y = 1.1;
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skinMat);
+            head.position.y = 1.85;
+            leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.6, 0.25), pantMat);
+            leftLeg.position.set(-0.2, 0.3, 0);
+            rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.6, 0.25), pantMat);
+            rightLeg.position.set(0.2, 0.3, 0);
+            leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
+            leftArm.position.set(-0.45, 1.2, 0);
+            rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
+            rightArm.position.set(0.45, 1.2, 0);
+
+            playerModel.add(body, head, leftLeg, rightLeg, leftArm, rightArm);
+            player.add(playerModel);
+            player.position.set(0, 0, 10);
+            scene.add(player);
+        }
+
+        function createBuilding(x, z, color, label, type) {
+            const b = new THREE.Group();
+            const house = new THREE.Mesh(new THREE.BoxGeometry(10, 8, 10), new THREE.MeshPhongMaterial({ color }));
+            house.position.y = 4;
+            const door = new THREE.Mesh(new THREE.PlaneGeometry(2, 4), new THREE.MeshPhongMaterial({ color: 0x451a03 }));
+            door.position.set(0, 2, 5.01);
+            const roof = new THREE.Mesh(new THREE.ConeGeometry(8, 6, 4), new THREE.MeshPhongMaterial({ color: 0x451a03 }));
+            roof.position.y = 11; roof.rotation.y = Math.PI / 4;
+            b.add(house, door, roof);
+            b.position.set(x, 0, z);
+            b.userData = { type, label };
+            world.buildings.push(b);
+            scene.add(b);
+        }
+
+        function spawnEntities() {
+            const cryMat = new THREE.MeshPhongMaterial({ color: 0x00f2ff, emissive: 0x004444 });
+            for (let i = 0; i < 20; i++) {
+                const c = new THREE.Mesh(new THREE.OctahedronGeometry(0.4), cryMat);
+                c.position.set(Math.random() * 160 - 80, 1, Math.random() * 160 - 80);
+                world.crystals.push(c);
+                scene.add(c);
+            }
+            for (let i = 0; i < 8; i++) spawnMonster();
+        }
+
+        function spawnMonster() {
+            const m = new THREE.Group();
+            m.add(new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshPhongMaterial({ color: 0xef4444 })));
+            m.position.set(Math.random() * 100 - 50, 0.75, -50 - Math.random() * 30);
+            m.userData = { hp: 30, speed: 0.04 + Math.random() * 0.04 };
+            world.monsters.push(m);
+            scene.add(m);
+        }
+
+        function triggerInteraction(b) {
+            if (b.userData.type === 'study') {
+                stats.combo = 0;
+                openStudyModal();
+            } else if (b.userData.type === 'letters') {
+                stats.combo = 0;
+                openLetterModal();
+            } else if (b.userData.type === 'farmer') {
+                openFarmerModal();
+            }
+        }
+
+        async function openLetterModal() {
+            gameState = 'modal';
+            const container = document.getElementById('modal-content');
+            
+            // 生成隨機大寫字母 A-Z
+            const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            const targetChar = letters[Math.floor(Math.random() * letters.length)];
+            const correctLower = targetChar.toLowerCase();
+            
+            // 生成三個錯誤的小寫字母作為干擾項
+            let options = [correctLower];
+            while(options.length < 4) {
+                let rand = letters[Math.floor(Math.random() * letters.length)].toLowerCase();
+                if(!options.includes(rand)) options.push(rand);
+            }
+            // 打亂順序
+            options.sort(() => Math.random() - 0.5);
+
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-3xl font-black text-blue-400">字母對對碰</h2>
+                    <div class="bg-blue-600 px-3 py-1 rounded-lg text-sm font-bold">連勝: ${stats.combo}</div>
+                </div>
+                
+                <div class="bg-white/10 border border-white/20 p-8 rounded-2xl mb-8 text-center">
+                    <p class="text-slate-400 mb-2">請問這個大寫字母的小寫是？</p>
+                    <div class="text-7xl font-black text-yellow-400 drop-shadow-lg">${targetChar}</div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-8" id="letter-options-grid">
+                    ${options.map(opt => `
+                        <div class="letter-option pointer-auto" onclick="checkLetterAnswer(this, '${opt}', '${correctLower}')">${opt}</div>
+                    `).join('')}
+                </div>
+
+                <div id="letter-feedback" class="hidden text-center mb-6">
+                    <p id="letter-feedback-text" class="text-xl font-bold"></p>
+                    <div class="flex gap-2 mt-4">
+                        <button onclick="openLetterModal()" class="flex-1 bg-green-600 py-3 rounded-full font-bold">挑戰下一題</button>
+                        <button onclick="closeModal()" class="flex-1 bg-slate-700 py-3 rounded-full font-bold">休息一下</button>
+                    </div>
+                </div>
+
+                <button id="btn-quit" onclick="closeModal()" class="w-full py-2 text-slate-500 hover:text-white transition">結束測驗</button>
+            `;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+        }
+
+        window.checkLetterAnswer = (el, selected, correct) => {
+            const grid = document.getElementById('letter-options-grid');
+            const feedback = document.getElementById('letter-feedback');
+            const feedbackText = document.getElementById('letter-feedback-text');
+            const quitBtn = document.getElementById('btn-quit');
+
+            // 禁用所有選項點擊
+            const allOptions = grid.querySelectorAll('.letter-option');
+            allOptions.forEach(opt => opt.style.pointerEvents = 'none');
+
+            if (selected === correct) {
+                el.classList.add('correct');
+                feedbackText.innerText = "✨ 太棒了！完全正確！";
+                feedbackText.className = "text-xl font-bold text-green-400 animate-bounce";
+                stats.combo++;
+                stats.power += 3;
+                updateUI();
+                createFireworks();
+            } else {
+                el.classList.add('wrong');
+                // 找出正確的那個標示出來
+                allOptions.forEach(opt => {
+                    if (opt.innerText === correct) opt.classList.add('correct');
+                });
+                feedbackText.innerText = "哎呀！再接再厲！";
+                feedbackText.className = "text-xl font-bold text-red-400";
+                stats.combo = 0;
+            }
+
+            feedback.classList.remove('hidden');
+            quitBtn.classList.add('hidden');
+        };
+
+        async function openStudyModal() {
+            gameState = 'modal';
+            const container = document.getElementById('modal-content');
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-3xl font-black text-yellow-400">學習小屋考驗</h2>
+                    <div class="bg-blue-600 px-3 py-1 rounded-lg text-sm font-bold">連勝: ${stats.combo}</div>
+                </div>
+                <p class="text-slate-400 text-sm mb-6">主題：交通、生活、食物或衣服</p>
+                <div id="ai-loading" class="flex flex-col items-center py-10">
+                    <div class="loader mb-4"></div>
+                    <p class="text-slate-300 animate-pulse">正在從星空中召喚新題...</p>
+                </div>
+                <div id="study-area" class="hidden">
+                    <div class="bg-blue-900/30 border border-blue-500/50 p-6 rounded-xl mb-6 text-center">
+                        <p id="study-category" class="text-xs text-blue-400 font-bold mb-2"></p>
+                        <div id="study-hint-display" class="text-2xl font-bold text-white leading-relaxed"></div>
+                    </div>
+                    <div id="input-row" class="flex justify-center mb-8"></div>
+                    <div id="post-correct-actions" class="hidden flex flex-col gap-3 mb-6">
+                        <p class="text-center text-green-400 font-bold animate-bounce">太棒了！答對了！</p>
+                        <button id="btn-continue" class="w-full bg-green-600 hover:bg-green-500 py-3 rounded-full font-black text-lg">繼續下一個挑戰</button>
+                        <button id="btn-leave" class="w-full bg-slate-700 hover:bg-slate-600 py-3 rounded-full font-bold">先休息一下</button>
+                    </div>
+                </div>
+                <button id="btn-quit" class="w-full py-3 text-slate-500 font-bold hover:text-white transition">放棄考驗離開</button>
+            `;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            document.getElementById('btn-quit').onclick = closeModal;
+
+            const prompt = `
+                Generate a quiz for a child. 
+                Theme: Randomly pick one English word from these categories: "Transportation", "Household Items", "Food", "Clothing".
+                Return JSON format: {
+                    word: (string, the English word), 
+                    hint: (string, the Traditional Chinese translation), 
+                    bopomofo: (string, the Bopomofo/Zhuyin for the hint), 
+                    category: (string, one of "交通工具", "生活用品", "美味食物", "衣服樣式"), 
+                    missing: (array of indices to hide)
+                }. 
+                Word length 3-7 letters. Ensure hint is Traditional Chinese (Taiwan).
+            `;
+
+            const data = await callGemini(prompt, true);
+            if (!data || !data.word) { toast("魔法連線中斷"); closeModal(); return; }
+
+            document.getElementById('ai-loading').classList.add('hidden');
+            const area = document.getElementById('study-area');
+            area.classList.remove('hidden');
+            document.getElementById('study-category').innerText = `[${data.category || '挑戰'}]`;
+            
+            const hintDisplay = document.getElementById('study-hint-display');
+            hintDisplay.innerHTML = `<ruby>${data.hint || ''}<rt>${data.bopomofo || ''}</rt></ruby>`;
+
+            const row = document.getElementById('input-row');
+            const word = data.word.toUpperCase();
+            const inputsRefs = [];
+            const missingIndices = Array.isArray(data.missing) ? data.missing : [];
+
+            word.split('').forEach((char, i) => {
+                if (missingIndices.includes(i)) {
+                    const input = document.createElement('input');
+                    input.className = "char-input";
+                    input.maxLength = 1;
+                    input.dataset.index = inputsRefs.length;
+                    row.appendChild(input);
+                    inputsRefs.push({ el: input, correct: char });
+
+                    input.oninput = (e) => {
+                        if (e.target.value) {
+                            const next = inputsRefs[parseInt(input.dataset.index) + 1];
+                            if (next) next.el.focus();
+                            checkAnswer();
+                        }
+                    };
+                    input.onkeydown = (e) => {
+                        if (e.key === 'Backspace' && !e.target.value) {
+                            const prev = inputsRefs[parseInt(input.dataset.index) - 1];
+                            if (prev) prev.el.focus();
+                        }
+                    };
+                } else {
+                    const span = document.createElement('span');
+                    span.className = "text-4xl font-black mx-2 text-slate-500";
+                    span.innerText = char;
+                    row.appendChild(span);
+                }
+            });
+
+            if (inputsRefs[0]) inputsRefs[0].el.focus();
+
+            function checkAnswer() {
+                const currentStr = inputsRefs.map(i => i.el.value.toUpperCase()).join('');
+                const correctStr = inputsRefs.map(i => i.correct).join('');
+                if (currentStr === correctStr) {
+                    onCorrectAnswer();
+                }
+            }
+
+            function onCorrectAnswer() {
+                inputsRefs.forEach(i => i.el.disabled = true);
+                stats.combo++;
+                stats.power += (2 + Math.floor(stats.combo / 2));
+                updateUI();
+                createFireworks();
+                
+                document.getElementById('btn-quit').classList.add('hidden');
+                document.getElementById('post-correct-actions').classList.remove('hidden');
+                
+                document.getElementById('btn-continue').onclick = () => {
+                    openStudyModal(); 
+                };
+                document.getElementById('btn-leave').onclick = closeModal;
+            }
+        }
+
+        function createFireworks() {
+            const container = document.getElementById('fireworks-container');
+            const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff'];
+            for (let i = 0; i < 60; i++) {
+                const f = document.createElement('div');
+                f.style.position = 'absolute';
+                f.style.left = '50%';
+                f.style.top = '50%';
+                f.style.width = '8px';
+                f.style.height = '8px';
+                f.style.borderRadius = '50%';
+                f.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                container.appendChild(f);
+
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 50 + Math.random() * 250;
+                const tx = Math.cos(angle) * dist;
+                const ty = Math.sin(angle) * dist;
+
+                f.animate([
+                    { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+                    { transform: `translate(${tx}px, ${ty}px) scale(0.5)`, opacity: 0 }
+                ], {
+                    duration: 1200 + Math.random() * 800,
+                    easing: 'ease-out'
+                }).onfinish = () => f.remove();
+            }
+        }
+
+        async function openFarmerModal() {
+            gameState = 'modal';
+            const container = document.getElementById('modal-content');
+            container.innerHTML = `
+                <h2 class="text-2xl font-bold text-amber-500 mb-4">農夫老伯的招呼</h2>
+                <div class="bg-slate-800 p-4 rounded-lg mb-4 italic text-slate-300" id="farmer-msg">「這年頭連開花都會咬人，你有什麼想說的嗎？」</div>
+                <input id="chat-input" class="w-full bg-slate-900 border border-slate-700 rounded p-3 mb-4 text-white" placeholder="跟農夫聊天...">
+                <button id="chat-send" class="w-full bg-blue-600 py-3 rounded font-bold mb-2">發送對話</button>
+                <button onclick="closeModal()" class="w-full py-2 text-slate-500">離開</button>
+            `;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            
+            document.getElementById('chat-send').onclick = async () => {
+                const input = document.getElementById('chat-input');
+                if (!input.value) return;
+                document.getElementById('farmer-msg').innerText = "...思考中...";
+                const reply = await callGemini(`你是個農夫，用台式親切中文回應：${input.value}`);
+                document.getElementById('farmer-msg').innerText = reply;
+                input.value = "";
+            };
+        }
+
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.add('hidden');
+            document.getElementById('fireworks-container').innerHTML = '';
+            gameState = 'playing';
+            const backward = new THREE.Vector3(0, 0, 4).applyQuaternion(player.quaternion);
+            player.position.add(backward);
+        }
+
+        function attack() {
+            const now = Date.now();
+            if (now - stats.lastAttack < 500) return;
+            stats.lastAttack = now;
+            rightArm.rotation.x = -Math.PI / 2;
+            setTimeout(() => rightArm.rotation.x = 0, 200);
+
+            world.monsters.forEach((m, i) => {
+                if (player.position.distanceTo(m.position) < 4) {
+                    m.userData.hp -= stats.power;
+                    if (m.userData.hp <= 0) {
+                        scene.remove(m); world.monsters.splice(i, 1);
+                        toast("消滅怪物！");
+                    }
+                }
+            });
+        }
+
+        function setupMobileControls() {
+            const base = document.getElementById('joystick-base');
+            const knob = document.getElementById('joystick-knob');
+            let active = false;
+            base.addEventListener('touchstart', e => { active = true; handleTouch(e); });
+            window.addEventListener('touchmove', e => { if (active) handleTouch(e); });
+            window.addEventListener('touchend', () => { 
+                active = false; knob.style.left = '25px'; knob.style.top = '25px';
+                inputs.w = inputs.s = inputs.a = inputs.d = false;
+            });
+            function handleTouch(e) {
+                const t = e.touches[0];
+                const r = base.getBoundingClientRect();
+                const dx = t.clientX - (r.left + 50), dy = t.clientY - (r.top + 50);
+                const dist = Math.min(Math.sqrt(dx*dx + dy*dy), 40);
+                const ang = Math.atan2(dy, dx);
+                knob.style.left = (25 + Math.cos(ang) * dist) + 'px';
+                knob.style.top = (25 + Math.sin(ang) * dist) + 'px';
+                inputs.w = dy < -10; inputs.s = dy > 10;
+                inputs.a = dx < -10; inputs.d = dx > 10;
+            }
+            document.getElementById('mobile-attack').ontouchstart = (e) => { e.preventDefault(); attack(); };
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!renderer) return;
+            const dt = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            if (gameState === 'playing') {
+                playerVelocity.x -= playerVelocity.x * 8 * dt;
+                playerVelocity.z -= playerVelocity.z * 8 * dt;
+                playerVelocity.y -= 25 * dt;
+
+                const spd = 80 * dt;
+                if (inputs.w) playerVelocity.z -= spd;
+                if (inputs.s) playerVelocity.z += spd;
+                if (inputs.a) playerVelocity.x -= spd;
+                if (inputs.d) playerVelocity.x += spd;
+
+                if (inputs.space && player.position.y <= 0.05) playerVelocity.y = 10;
+
+                player.translateX(playerVelocity.x * dt);
+                player.translateZ(playerVelocity.z * dt);
+                player.position.y += playerVelocity.y * dt;
+                if (player.position.y < 0) { player.position.y = 0; playerVelocity.y = 0; }
+
+                const moving = Math.abs(playerVelocity.x) > 0.5 || Math.abs(playerVelocity.z) > 0.5;
+                if (moving) {
+                    const angle = Math.atan2(playerVelocity.x, playerVelocity.z);
+                    playerModel.rotation.y = THREE.MathUtils.lerp(playerModel.rotation.y, angle, 0.15);
+                    const swing = Math.sin(time * 14) * 0.5;
+                    leftLeg.rotation.x = swing; rightLeg.rotation.x = -swing;
+                    leftArm.rotation.x = -swing; rightArm.rotation.x = swing;
+                } else {
+                    leftLeg.rotation.x = rightLeg.rotation.x = leftArm.rotation.x = rightArm.rotation.x = 0;
+                }
+
+                const camTarget = new THREE.Vector3(0, 6, 12).applyMatrix4(player.matrixWorld);
+                camera.position.lerp(camTarget, 0.1);
+                camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+                updateObjects(dt);
+            }
+            renderer.render(scene, camera);
+        }
+
+        function updateObjects(dt) {
+            world.crystals.forEach((c, i) => {
+                c.rotation.y += 0.03;
+                if (player.position.distanceTo(c.position) < 2) {
+                    scene.remove(c); world.crystals.splice(i, 1);
+                    stats.crystals++; toast("💎 獲得水晶！");
+                }
+            });
+            world.monsters.forEach(m => {
+                const d = player.position.distanceTo(m.position);
+                if (d < 25) {
+                    m.lookAt(player.position.x, 0, player.position.z);
+                    m.position.lerp(player.position, m.userData.speed);
+                    if (d < 2) stats.hp -= 0.15;
+                }
+            });
+            let near = null;
+            world.buildings.forEach(b => {
+                if (player.position.distanceTo(b.position) < 7) near = b;
+            });
+            activeBuilding = near;
+            const btn = document.getElementById('interaction-btn-container');
+            if (near) {
+                btn.classList.remove('hidden');
+                document.getElementById('main-action-btn').innerText = `進入${near.userData.label}`;
+                if (inputs.space) { triggerInteraction(near); inputs.space = false; }
+            } else {
+                btn.classList.add('hidden');
+            }
+            updateUI();
+            if (stats.hp <= 0) endGame(false);
+            if (world.monsters.length === 0 && gameState === 'playing') endGame(true);
+        }
+
+        function updateUI() {
+            document.getElementById('hp-bar').style.width = stats.hp + '%';
+            document.getElementById('crystal-count').innerText = stats.crystals;
+            document.getElementById('power-val').innerText = stats.power;
+        }
+
+        function toast(m) {
+            const el = document.getElementById('toast');
+            el.innerText = m; el.style.opacity = 1;
+            setTimeout(() => el.style.opacity = 0, 2500);
+        }
+
+        function endGame(v) {
+            gameState = 'end';
+            const s = document.getElementById('end-screen');
+            s.classList.remove('hidden');
+            const t = document.getElementById('end-title');
+            t.innerText = v ? "🎊 任務完成！" : "💀 冒險中止";
+            t.className = `text-6xl font-black mb-4 ${v ? 'text-yellow-400' : 'text-red-500'}`;
+            document.getElementById('end-msg').innerText = v ? "你成功守護了小學堂村莊！" : "你倒在了荒野中，請重新振作...";
+        }
+    </script>
+</body>
+</html>
